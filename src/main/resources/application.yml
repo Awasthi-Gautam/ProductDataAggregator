@@ -27,18 +27,6 @@ spring:
       host: ${REDIS_HOST:localhost}
       port: ${REDIS_PORT:6379}
 
-  # ── Kafka ──────────────────────────────────────────────────────────────
-  kafka:
-    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:29092}
-    consumer:
-      group-id: data-aggregation-group
-      auto-offset-reset: earliest
-      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
-      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
-    producer:
-      key-serializer: org.apache.kafka.common.serialization.StringSerializer
-      value-serializer: org.apache.kafka.common.serialization.StringSerializer
-
 # ── Actuator ─────────────────────────────────────────────────────────────
 management:
   endpoints:
@@ -56,4 +44,11 @@ app:
     name: India
   collectors:
     enabled: true
-    interval-ms: 300000  # 5 minutes between collection runs
+    # Stage 1 (discovery) runs every hour
+    # Stage 2 (enrichment) runs 10 min after discovery
+    # Stage 3 (scoring) runs 10 min after enrichment
+    discovery-cron: "0 0 * * * *"    # top of every hour
+    enrichment-cron: "0 10 * * * *"  # 10 min past every hour
+    scoring-cron: "0 20 * * * *"     # 20 min past every hour
+  youtube:
+    api-key: ${YOUTUBE_API_KEY:}      # set in .env — free quota: 100 searches/day

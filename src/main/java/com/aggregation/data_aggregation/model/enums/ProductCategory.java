@@ -1,0 +1,19 @@
+package com.aggregation.data_aggregation.model.enums;
+
+public enum ProductCategory {
+    ELECTRONICS_GADGETS,
+    FASHION_APPAREL,
+    HOME_KITCHEN,
+    BEAUTY_PERSONAL_CARE,
+    SPORTS_FITNESS,
+    HEALTH_WELLNESS,
+    BOOKS_MEDIA,
+    TOYS_GAMES,
+    FOOD_GROCERY,
+    AUTOMOTIVE,
+    BABY_KIDS,
+    PET_SUPPLIES,
+    TRAVEL_LUGGAGE,
+    OFFICE_STATIONERY,
+    UNCATEGORIZED
+}

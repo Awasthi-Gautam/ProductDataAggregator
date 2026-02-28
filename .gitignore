@@ -36,7 +36,12 @@ out/
 ### VS Code ###
 .vscode/
 
-# Add this at the end
+# Secrets
+.env
+
+# Claude memory
 .claude/
+
+# Gradle
 .gradle/
 build/
