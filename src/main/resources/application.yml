@@ -51,4 +51,16 @@ app:
     enrichment-cron: "0 10 * * * *"  # 10 min past every hour
     scoring-cron: "0 20 * * * *"     # 20 min past every hour
   youtube:
-    api-key: ${YOUTUBE_API_KEY:}      # set in .env — free quota: 100 searches/day
+    api-key: ${YOUTUBE_API_KEY:}      # set in .env — free quota: 10,000 units/day (100 searches)
+  google:
+    cse-api-key: ${GOOGLE_CSE_API_KEY:}   # Google Custom Search API key (can reuse YouTube key)
+    cse-cx: ${GOOGLE_CSE_CX:}            # Search Engine ID from programmablesearchengine.google.com
+  flipkart:
+    affiliate-id: ${FLIPKART_AFFILIATE_ID:}       # from affiliate.flipkart.com → API Access
+    affiliate-token: ${FLIPKART_AFFILIATE_TOKEN:} # from affiliate.flipkart.com → API Access
+  amazon:
+    affiliate-tag: ${AMAZON_AFFILIATE_TAG:}       # from affiliate-program.amazon.in → your tracking ID
+  reddit:
+    client-id: ${REDDIT_CLIENT_ID:}           # from reddit.com/prefs/apps → script app ID
+    client-secret: ${REDDIT_CLIENT_SECRET:}   # from reddit.com/prefs/apps → secret
+    username: ${REDDIT_USERNAME:data-aggregation-bot}  # your Reddit account username

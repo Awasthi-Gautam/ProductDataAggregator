@@ -27,6 +27,7 @@ public enum Platform {
 
     // Search & Discovery
     GOOGLE_TRENDS,
+    GOOGLE_CSE,
     PRODUCT_HUNT,
     EBAY_IN
 }

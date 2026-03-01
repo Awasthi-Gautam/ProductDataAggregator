@@ -8,38 +8,57 @@ import com.aggregation.data_aggregation.model.entity.SourcePost;
 import com.aggregation.data_aggregation.model.enums.Platform;
 import com.aggregation.data_aggregation.model.enums.PostType;
 import com.aggregation.data_aggregation.model.enums.ProductCategory;
-import org.jsoup.nodes.Document;
-import org.jsoup.nodes.Element;
-import org.jsoup.select.Elements;
+import com.fasterxml.jackson.databind.JsonNode;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
- * Scrapes Flipkart's "Best Sellers" / top-rated pages per category.
+ * Discovers trending products from Flipkart using the official Affiliate API.
  *
- * URL pattern: https://www.flipkart.com/{category-slug}?sort=popularity
- * Note: Flipkart aggressively blocks bots. This collector is best-effort —
- * it gracefully skips categories where scraping is blocked (403/CAPTCHA).
+ * Why not scraping? Flipkart aggressively blocks bots (403) from cloud and
+ * residential IPs alike. The Affiliate API is free, reliable, and returns
+ * structured JSON with product data.
+ *
+ * Setup (free, ~5 minutes):
+ *   1. Go to https://affiliate.flipkart.com and sign up
+ *   2. After email verification, go to "API Access" in the dashboard
+ *   3. Copy your Affiliate ID and Token
+ *   4. Add to .env: FLIPKART_AFFILIATE_ID=... and FLIPKART_AFFILIATE_TOKEN=...
+ *
+ * Without credentials this collector is skipped gracefully.
+ *
+ * API Reference: https://affiliate.flipkart.com/api-docs
+ * Endpoint: GET https://affiliate-api.flipkart.io/affiliate/offers/v0/top_offers
  */
 @Component
 public class FlipkartCollector extends AbstractCollector {
 
-    private static final String BASE_URL = "https://www.flipkart.com/";
-    private static final int MAX_PER_CATEGORY = 20;
+    private static final String API_BASE =
+        "https://affiliate-api.flipkart.io/affiliate/offers/v0/top_offers";
 
+    // Flipkart category IDs → our internal category
     private static final Map<String, ProductCategory> CATEGORIES = new LinkedHashMap<>();
     static {
-        CATEGORIES.put("mobiles/pr?sid=tyy%2C4io&sort=popularity_desc",  ProductCategory.ELECTRONICS_GADGETS);
-        CATEGORIES.put("laptops/pr?sid=6bo%2Cb5g&sort=popularity_desc",  ProductCategory.ELECTRONICS_GADGETS);
-        CATEGORIES.put("clothing/pr?sid=clo&sort=popularity_desc",       ProductCategory.FASHION_APPAREL);
-        CATEGORIES.put("kitchen-dining/pr?sid=pfu&sort=popularity_desc", ProductCategory.HOME_KITCHEN);
-        CATEGORIES.put("beauty/pr?sid=bar&sort=popularity_desc",         ProductCategory.BEAUTY_PERSONAL_CARE);
-        CATEGORIES.put("books/pr?sid=bks&sort=popularity_desc",          ProductCategory.BOOKS_MEDIA);
-        CATEGORIES.put("toys-games/pr?sid=toy&sort=popularity_desc",     ProductCategory.TOYS_GAMES);
-        CATEGORIES.put("sports-fitness/pr?sid=spo&sort=popularity_desc", ProductCategory.SPORTS_FITNESS);
+        CATEGORIES.put("MOBILE",       ProductCategory.ELECTRONICS_GADGETS);
+        CATEGORIES.put("LAPTOP",       ProductCategory.ELECTRONICS_GADGETS);
+        CATEGORIES.put("HEADPHONES",   ProductCategory.ELECTRONICS_GADGETS);
+        CATEGORIES.put("TELEVISION",   ProductCategory.ELECTRONICS_GADGETS);
+        CATEGORIES.put("CLOTHING_SET", ProductCategory.FASHION_APPAREL);
+        CATEGORIES.put("SHOE",         ProductCategory.FASHION_APPAREL);
+        CATEGORIES.put("HOME_FURNISHING", ProductCategory.HOME_KITCHEN);
+        CATEGORIES.put("BEAUTY",       ProductCategory.BEAUTY_PERSONAL_CARE);
+        CATEGORIES.put("SPORTS",       ProductCategory.SPORTS_FITNESS);
+        CATEGORIES.put("BOOK",         ProductCategory.BOOKS_MEDIA);
     }
+
+    @Value("${app.flipkart.affiliate-id:}")
+    private String affiliateId;
+
+    @Value("${app.flipkart.affiliate-token:}")
+    private String affiliateToken;
 
     @Override
     public Platform getPlatform() { return Platform.FLIPKART; }
@@ -50,92 +69,80 @@ public class FlipkartCollector extends AbstractCollector {
     @Override
     public CollectionResult discover() {
         CollectionResult result = new CollectionResult(getPlatform());
+
+        if (affiliateId == null || affiliateId.isBlank()
+                || affiliateToken == null || affiliateToken.isBlank()) {
+            log.debug("FlipkartCollector: affiliate credentials not configured — skipping. "
+                + "Register free at https://affiliate.flipkart.com to enable Flipkart data.");
+            return result;
+        }
+
         for (Map.Entry<String, ProductCategory> entry : CATEGORIES.entrySet()) {
             try {
                 scrapeCategory(entry.getKey(), entry.getValue(), result);
-                sleep(4_000);
+                sleep(1_000);
             } catch (Exception e) {
-                log.warn("Flipkart scrape failed for '{}': {}", entry.getKey(), e.getMessage());
+                log.warn("Flipkart API failed for category '{}': {}", entry.getKey(), e.getMessage());
             }
         }
+
+        log.info("Flipkart: collected {} products across {} categories",
+            result.productCount(), CATEGORIES.size());
         return result;
     }
 
-    private void scrapeCategory(String slug, ProductCategory category, CollectionResult result) throws Exception {
-        Document doc = fetchHtml(BASE_URL + slug);
+    private void scrapeCategory(String categoryId, ProductCategory category,
+                                CollectionResult result) throws Exception {
+        String url = API_BASE + "?id=" + categoryId + "&page=1&size=20";
 
-        // Flipkart product cards use different container classes over time — try all known variants
-        Elements items = doc.select("div._1AtVbE");
-        if (items.isEmpty()) items = doc.select("div._13oc-S");
-        if (items.isEmpty()) items = doc.select("div[class*='productCard']");
-        if (items.isEmpty()) items = doc.select("div._2kHMtA");
+        JsonNode root = fetchJson(url,
+            "Fk-Affiliate-Id",    affiliateId,
+            "Fk-Affiliate-Token", affiliateToken,
+            "Accept",             "application/json");
 
-        if (items.isEmpty()) {
-            log.debug("Flipkart/{}: no product cards found — may be blocked or layout changed", slug);
+        JsonNode products = root.path("products");
+        if (!products.isArray()) {
+            log.debug("Flipkart/{}: no products array in response", categoryId);
             return;
         }
 
         int rank = 1;
-        for (Element item : items) {
-            if (rank > MAX_PER_CATEGORY) break;
+        for (JsonNode node : products) {
+            JsonNode base  = node.path("productBaseInfo");
+            JsonNode ident = base.path("productIdentifier");
+            JsonNode attrs = base.path("productAttributes");
 
-            String title = extractTitle(item);
+            String title     = attrs.path("title").asText("").trim();
+            String brand     = attrs.path("productBrand").asText(null);
+            String productUrl = ident.path("affProductUrl").asText(
+                                ident.path("productUrl").asText("")).trim();
+            String imageUrl  = attrs.path("imageUrls").path("400x400").asText(null);
+            double price     = attrs.path("sellingPrice").path("amount").asDouble(0);
+            String ratingStr = attrs.path("productRating").asText("0");
+
             if (title.isBlank()) continue;
-
-            String href = item.select("a[href*='/p/']").attr("abs:href");
-            if (href.contains("?")) href = href.substring(0, href.indexOf('?'));
-
-            String price = extractPrice(item);
-            String ratingText = item.select("div._3LWZlK").text().trim();
-            double rating = parseRating(ratingText);
 
             Product product = new Product();
             product.setName(title);
             product.setCategory(category);
-
-            String imageUrl = item.select("img._396cs4, img._2r_T1I").attr("src");
-            if (!imageUrl.isBlank()) product.setImageUrl(imageUrl);
+            if (brand != null && !brand.isBlank()) product.setBrand(brand);
+            if (imageUrl != null && !imageUrl.isBlank()) product.setImageUrl(imageUrl);
 
             SourcePost post = new SourcePost();
             post.setPlatform(Platform.FLIPKART);
             post.setType(PostType.BESTSELLER_RANK);
-            post.setTitle("Flipkart Popular #" + rank + " in " + category.name() + ": " + title);
+            post.setTitle("Flipkart Top #" + rank + " in " + category.name() + ": " + title);
             post.setContent("Rank: " + rank
-                + " | Rating: " + (rating > 0 ? rating + "/5" : "N/A")
-                + " | Price: " + (price.isBlank() ? "N/A" : "₹" + price));
-            post.setUrl(href.isBlank() ? BASE_URL + slug : href);
+                + " | Rating: " + (ratingStr.equals("0") ? "N/A" : ratingStr + "/5")
+                + (price > 0 ? " | Price: ₹" + String.format("%.0f", price) : ""));
+            post.setUrl(productUrl.isBlank() ? "https://www.flipkart.com" : productUrl);
             post.setRegion(new Region());
-            if (rating > 0) post.setRating(rating);
+            if (!ratingStr.equals("0")) post.setRating(parseRating(ratingStr));
 
             result.addProduct(product).addPost(post);
             rank++;
         }
 
-        log.debug("Flipkart/{}: found {} products", slug, rank - 1);
-    }
-
-    private String extractTitle(Element item) {
-        for (String sel : new String[]{
-            "div._4rR01T", "a.s1Q9rs", "a.IRpwTa",
-            "div[class*='title']", "a[title]"
-        }) {
-            String text = item.select(sel).text().trim();
-            if (!text.isBlank() && text.length() > 3) return text;
-        }
-        // Fallback: use the anchor title attribute
-        String title = item.select("a[title]").attr("title").trim();
-        return title.length() > 3 ? title : "";
-    }
-
-    private String extractPrice(Element item) {
-        for (String sel : new String[]{
-            "div._30jeq3", "div._1_WHN1",
-            "span[class*='price']", "div[class*='Price']"
-        }) {
-            String price = item.select(sel).text()
-                .replace("₹", "").replace(",", "").trim();
-            if (!price.isBlank()) return price;
-        }
-        return "";
+        log.debug("Flipkart/{}: {} products", categoryId, rank - 1);
     }
 }

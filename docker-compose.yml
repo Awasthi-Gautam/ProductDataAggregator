@@ -71,9 +71,14 @@ services:
       ELASTICSEARCH_URI: http://elasticsearch:9200
       REDIS_HOST: redis
       REDIS_PORT: 6379
+      FLIPKART_AFFILIATE_ID: ${FLIPKART_AFFILIATE_ID:-}
+      FLIPKART_AFFILIATE_TOKEN: ${FLIPKART_AFFILIATE_TOKEN:-}
+      AMAZON_AFFILIATE_TAG: ${AMAZON_AFFILIATE_TAG:-}
       REDDIT_CLIENT_ID: ${REDDIT_CLIENT_ID:-}
       REDDIT_CLIENT_SECRET: ${REDDIT_CLIENT_SECRET:-}
       YOUTUBE_API_KEY: ${YOUTUBE_API_KEY:-}
+      GOOGLE_CSE_API_KEY: ${GOOGLE_CSE_API_KEY:-}
+      GOOGLE_CSE_CX: ${GOOGLE_CSE_CX:-}
       TWITTER_BEARER_TOKEN: ${TWITTER_BEARER_TOKEN:-}
       INSTAGRAM_ACCESS_TOKEN: ${INSTAGRAM_ACCESS_TOKEN:-}
       TIKTOK_CLIENT_KEY: ${TIKTOK_CLIENT_KEY:-}
@@ -86,6 +91,16 @@ services:
       interval: 15s
       timeout: 10s
       retries: 10
+    restart: unless-stopped
+
+  # ── React Dashboard (Nginx) ───────────────────────────────────────────────
+  frontend:
+    build: ./frontend
+    container_name: da-frontend
+    depends_on:
+      - app
+    ports:
+      - "3000:80"
     restart: unless-stopped
 
 volumes:
